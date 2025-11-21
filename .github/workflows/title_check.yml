@@ -29,7 +29,7 @@ jobs:
           TW_CONSUMER_SECRET: ${{ secrets.TW_CONSUMER_SECRET }}
           TW_ACCESS_TOKEN: ${{ secrets.TW_ACCESS_TOKEN }}
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
-        run: python title_watch_final.py
+        run: python main.py
       
       # 状態ファイル (last_seen_urls.json) の変更をコミットして保存する
       - name: Commit and push state file
