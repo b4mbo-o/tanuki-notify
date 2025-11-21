@@ -2,7 +2,7 @@ name: Thread Title Watcher
 
 on:
   schedule:
-    # 1時間に1回実行
+    # 1時間に1回実行 (cron: '分 時 日 月 曜日')
     - cron: '0 */1 * * *' 
   workflow_dispatch: # 手動実行を可能にする
 
@@ -13,18 +13,24 @@ permissions:
 jobs:
   check_for_updates:
     runs-on: ubuntu-latest
-    environment: .env  # 環境(Environment)の設定があれば指定
+    # environment: .env は、もしSecretがリポジトリレベルではなくEnvironmentに登録されている場合に必要です。
+    # 混乱を避けるため、一旦コメントアウトまたは削除し、リポジトリSecretsから直接読み込みます。
     
     steps:
-      # 1. リポジトリをチェックアウト (デフォルトの main ブランチ)
-      - name: Checkout repository
+      # 1. 状態管理用の 'actions' ブランチをチェックアウト
+      - name: Checkout repository (actions branch) 
         uses: actions/checkout@v4
+        with:
+          ref: actions # 👈 'actions' ブランチに切り替え
+          # Tokenを渡すことで、後のプッシュ時の権限問題を回避
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       # 2. Python環境のセットアップ
       - name: Setup Python Environment
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          # キャッシュを有効にし、依存関係のインストールを高速化
           cache: 'pip'
           cache-dependency-path: 'requirements.txt'
 
@@ -37,19 +43,20 @@ jobs:
       # 4. Botの実行
       - name: Run watcher script
         env:
+          # Secretを環境変数として渡す
           TW_CONSUMER_KEY: ${{ secrets.TW_CONSUMER_KEY }}
           TW_CONSUMER_SECRET: ${{ secrets.TW_CONSUMER_SECRET }}
           TW_ACCESS_TOKEN: ${{ secrets.TW_ACCESS_TOKEN }}
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
         run: python main.py
       
-      # 5. 状態ファイルを main ブランチにコミットして保存
+      # 5. 状態ファイルを 'actions' ブランチにコミットして保存
       - name: Commit and push state file
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions Bot"
           git add last_seen_urls.json
-          # 変更がなければエラーにせず終了
+          # 変更がなければコミットしない
           git diff --quiet --staged || git commit -m "Update last seen thread URLs [skip ci]"
-          # 現在のブランチ (main) にプッシュ
-          git push
+          # 🚨 'actions' ブランチにプッシュ
+          git push origin actions
