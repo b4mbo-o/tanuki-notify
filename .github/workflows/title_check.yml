@@ -16,13 +16,12 @@ jobs:
     environment: .env
     
     steps:
-      # 1. 状態管理用の 'actions' ブランチをチェックアウト
-      - name: Checkout repository (actions branch) 
+      - name: Checkout repository (actions branch code)
         uses: actions/checkout@v4
         with:
-          ref: actions # 👈 'actions' ブランチに切り替え
-          # Tokenを渡すことで、後のプッシュ時の権限問題を回避
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # 🚨 修正点: actionsブランチのコードを取得するよう指定
+          ref: actions 
+          token: ${{ secrets.GITHUB_TOKEN }} # トークンも忘れずに渡す
 
       # 2. Python環境のセットアップ
       - name: Setup Python Environment
