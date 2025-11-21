@@ -135,7 +135,7 @@ def tweet_notification(new_threads: List[Dict[str, str]]):
     new_count = len(new_threads)
     
     # メッセージの構築
-    message = f"🚨雑談たぬきにて【{SEARCH_KEYWORD}】の新着投稿が見つかりました😢\n"
+    message = f"🦝雑談たぬきにて【{SEARCH_KEYWORD}】の新着投稿が見つかりました😢\n"
     
     # 最新の1件目のタイトルとURLを必ず表示
     message += f"\n🆕 最新スレッド (他{new_count - 1}件):\n"
