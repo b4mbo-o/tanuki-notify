@@ -13,8 +13,7 @@ permissions:
 jobs:
   check_for_updates:
     runs-on: ubuntu-latest
-    # environment: .env は、もしSecretがリポジトリレベルではなくEnvironmentに登録されている場合に必要です。
-    # 混乱を避けるため、一旦コメントアウトまたは削除し、リポジトリSecretsから直接読み込みます。
+    environment: .env
     
     steps:
       # 1. 状態管理用の 'actions' ブランチをチェックアウト
