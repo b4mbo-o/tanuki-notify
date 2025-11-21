@@ -2,8 +2,8 @@ name: Thread Title Watcher
 
 on:
   schedule:
-    # 2時間に1回実行
-    - cron: '0 */2 * * *' 
+    # 1時間に1回実行
+    - cron: '0 */1 * * *' 
   workflow_dispatch: # 手動実行を可能にする
 
 # 🚨 必須: Botにリポジトリへの書き込み権限を与える
