@@ -127,29 +127,33 @@ def save_state(urls: List[str]):
 # ===================================================
 
 def tweet_notification(new_threads: List[Dict[str, str]]):
-    """新着スレッドのタイトルとURLをXに通知する。"""
+    """新着スレッドのタイトルとURLをXに通知する。（最多1件のみ詳細表示）"""
     print(f"[tweet] 新着スレッド {len(new_threads)} 件をツイートします。")
     
-    # 新着スレッドの情報を整形
-    message = f"🚨雑談たぬきにて【{SEARCH_KEYWORD}】の新着スレッドが {len(new_threads)} 件見つかりました😢\n"
+    # 🚨 修正点 1: 新着スレッドは1件目（最新）のみ詳細表示
+    latest_thread = new_threads[0]
+    new_count = len(new_threads)
     
-    # 最大3件までツイートに含める
-    for i, thread in enumerate(new_threads[:3]):
-        # ツイート文字数制限を考慮してタイトルを短縮
-        title_limit = 20 if i == 0 else 15
-        truncated_title = thread['title'][:title_limit] + ('...' if len(thread['title']) > title_limit else '')
-        
-        message += f"\n👉 {truncated_title}\n{thread['url']}"
+    # メッセージの構築
+    message = f"🚨雑談たぬきにて【{SEARCH_KEYWORD}】の新着投稿が見つかりました😢\n"
+    
+    # 最新の1件目のタイトルとURLを必ず表示
+    message += f"\n🆕 最新スレッド (他{new_count - 1}件):\n"
+    
+    # タイトルをそのまま使用し、ハッシュタグが確実に表示されるようにメッセージ構造をシンプル化
+    message += f"『{latest_thread['title']}』\n"
+    message += f"{latest_thread['url']}"
 
-    # 4件以上ある場合は補足
-    if len(new_threads) > 3:
-        message += f"\n...他 {len(new_threads) - 3} 件。詳細は検索ページで確認してください。"
-        message += f"\n{TARGET_URL}"
+    # 複数件あった場合は、検索結果ページへのリンクを追加
+    if new_count > 1:
+        message += f"\n\n👉 他 {new_count - 1} 件は、こちらで確認:\n"
+        message += f"{TARGET_URL}"
         
-    message += f"\n#{SEARCH_KEYWORD} #雑談たぬき #たぬきに書くな"
+    message += f"\n\n#{SEARCH_KEYWORD} #雑談たぬき #たぬきに書くな"
     
     # 最終的な文字数チェック
     if len(message) > 280:
+        # 最終手段としてメッセージを切り詰めるが、ハッシュタグが生き残る可能性が高い
         message = message[:277] + "..."
 
     try:
