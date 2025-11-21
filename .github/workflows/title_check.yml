@@ -2,27 +2,39 @@ name: Thread Title Watcher
 
 on:
   schedule:
-    # 2時間に1回実行 (cron: '分 時 日 月 曜日')
+    # 2時間に1回実行
     - cron: '0 */2 * * *' 
   workflow_dispatch: # 手動実行を可能にする
+
+# 🚨 必須: Botにリポジトリへの書き込み権限を与える
+permissions:
+  contents: write
 
 jobs:
   check_for_updates:
     runs-on: ubuntu-latest
+    environment: .env  # 環境(Environment)の設定があれば指定
     
     steps:
+      # 1. リポジトリをチェックアウト (デフォルトの main ブランチ)
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      # 2. Python環境のセットアップ
+      - name: Setup Python Environment
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
 
+      # 3. 依存関係のインストール
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      # 環境変数としてX APIキーを安全に渡す
+      # 4. Botの実行
       - name: Run watcher script
         env:
           TW_CONSUMER_KEY: ${{ secrets.TW_CONSUMER_KEY }}
@@ -31,12 +43,13 @@ jobs:
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
         run: python main.py
       
-      # 状態ファイル (last_seen_urls.json) の変更をコミットして保存する
+      # 5. 状態ファイルを main ブランチにコミットして保存
       - name: Commit and push state file
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions Bot"
           git add last_seen_urls.json
-          # 変更がなければコミットしない
-          git diff --quiet --staged || git commit -m "Update last seen thread URLs"
+          # 変更がなければエラーにせず終了
+          git diff --quiet --staged || git commit -m "Update last seen thread URLs [skip ci]"
+          # 現在のブランチ (main) にプッシュ
           git push
