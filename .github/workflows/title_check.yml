@@ -1,0 +1,42 @@
+name: Thread Title Watcher
+
+on:
+  schedule:
+    # 2時間に1回実行 (cron: '分 時 日 月 曜日')
+    - cron: '0 */2 * * *' 
+  workflow_dispatch: # 手動実行を可能にする
+
+jobs:
+  check_for_updates:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 環境変数としてX APIキーを安全に渡す
+      - name: Run watcher script
+        env:
+          TW_CONSUMER_KEY: ${{ secrets.TW_CONSUMER_KEY }}
+          TW_CONSUMER_SECRET: ${{ secrets.TW_CONSUMER_SECRET }}
+          TW_ACCESS_TOKEN: ${{ secrets.TW_ACCESS_TOKEN }}
+          TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
+        run: python title_watch_final.py
+      
+      # 状態ファイル (last_seen_urls.json) の変更をコミットして保存する
+      - name: Commit and push state file
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Actions Bot"
+          git add last_seen_urls.json
+          # 変更がなければコミットしない
+          git diff --quiet --staged || git commit -m "Update last seen thread URLs"
+          git push
