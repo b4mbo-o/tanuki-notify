@@ -7,6 +7,7 @@ import cloudscraper  # Bot対策回避ライブラリ
 from dotenv import load_dotenv
 import tweepy
 from bs4 import BeautifulSoup
+from urllib.parse import quote
 
 # .envファイルを読み込み、環境変数を設定
 load_dotenv()
@@ -15,8 +16,11 @@ load_dotenv()
 # ===== 設 定 (Configuration) ======
 # ==================================
 
-# 監視対象URL
-TARGET_URL = "https://b.2ch2.net/test/search.cgi?bbs=zatsudan&w=%E3%81%B0%E3%82%93%E3%81%B6%E3%83%BC&t=b"
+SEARCH_KEYWORD = "ばんぶー"
+BASE_URL = "https://b.2ch2.net/test/search.cgi?bbs=zatsudan&w="
+ENCODED_KEYWORD = quote(SEARCH_KEYWORD.encode('cp932')) # 雑談たぬきはEUC-JPが使われることが多いと仮定
+TARGET_URL = f"{BASE_URL}{ENCODED_KEYWORD}&t=b"
+
 # 状態管理ファイル (前回チェック時のURLリストを保存)
 STATE_FILE = Path("last_seen_urls.json")
 
@@ -127,7 +131,7 @@ def tweet_notification(new_threads: List[Dict[str, str]]):
     print(f"[tweet] 新着スレッド {len(new_threads)} 件をツイートします。")
     
     # 新着スレッドの情報を整形
-    message = f"🚨雑談たぬきにて【ばんぶー】の新着スレッドが {len(new_threads)} 件見つかりました😢\n"
+    message = f"🚨雑談たぬきにて【{SEARCH_KEYWORD}】の新着スレッドが {len(new_threads)} 件見つかりました😢\n"
     
     # 最大3件までツイートに含める
     for i, thread in enumerate(new_threads[:3]):
@@ -142,7 +146,7 @@ def tweet_notification(new_threads: List[Dict[str, str]]):
         message += f"\n...他 {len(new_threads) - 3} 件。詳細は検索ページで確認してください。"
         message += f"\n{TARGET_URL}"
         
-    message += "\n#ばんぶー #雑談たぬき #たぬきに書くな"
+    message += f"\n#{SEARCH_KEYWORD} #雑談たぬき #たぬきに書くな"
     
     # 最終的な文字数チェック
     if len(message) > 280:
