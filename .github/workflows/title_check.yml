@@ -2,39 +2,41 @@ name: Thread Title Watcher
 
 on:
   schedule:
-    # 1時間に1回実行
-    - cron: '0 */1 * * *' 
-  workflow_dispatch: # 手動実行を可能にする
+    # 20分に1回実行
+    - cron: "*/20 * * * *"
+  workflow_dispatch:
 
-# 🚨 必須: Botにリポジトリへの書き込み権限を与える
 permissions:
   contents: write
 
 jobs:
   check_for_updates:
     runs-on: ubuntu-latest
-    environment: .env  # 環境(Environment)の設定があれば指定
-    
-    steps:
-      # 1. リポジトリをチェックアウト (デフォルトの main ブランチ)
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    environment: .env
 
-      # 2. Python環境のセットアップ
+    steps:
+      # 1. actions ブランチのコードをチェックアウト
+      - name: Checkout repository (actions branch code)
+        uses: actions/checkout@v4
+        with:
+          ref: actions
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. Python 環境セットアップ
       - name: Setup Python Environment
         uses: actions/setup-python@v4
         with:
-          python-version: '3.9'
-          cache: 'pip'
-          cache-dependency-path: 'requirements.txt'
+          python-version: "3.9"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
 
-      # 3. 依存関係のインストール
+      # 3. 必要なライブラリをインストール
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. Botの実行
+      # 4. スクリプト実行
       - name: Run watcher script
         env:
           TW_CONSUMER_KEY: ${{ secrets.TW_CONSUMER_KEY }}
@@ -42,14 +44,17 @@ jobs:
           TW_ACCESS_TOKEN: ${{ secrets.TW_ACCESS_TOKEN }}
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
         run: python main.py
-      
-      # 5. 状態ファイルを main ブランチにコミットして保存
+
+      # 5. 状態ファイルコミット
       - name: Commit and push state file
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions Bot"
+
           git add last_seen_urls.json
-          # 変更がなければエラーにせず終了
+
+          # 変更があるときだけ commit
           git diff --quiet --staged || git commit -m "Update last seen thread URLs [skip ci]"
-          # 現在のブランチ (main) にプッシュ
-          git push
+
+          # actions ブランチに push
+          git push origin actions
