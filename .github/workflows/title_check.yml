@@ -14,30 +14,38 @@ jobs:
     environment: .env
 
     steps:
-      # ブランチ存在チェック → BRANCH_NAME に格納
+      # 📌 まずは shallow clone（デフォのmain）だけ checkout して .git を作る
+      - name: Initial checkout (shallow)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # 📌 ブランチ存在チェック → BRANCH_NAME に格納
       - name: Detect branch (actions or main)
         id: detect_branch
         run: |
-          # リモートURLを明示設定（GitHubが勝手に弄ってても対応できる）
+          # remote を強制再設定（安全のため）
           git remote remove origin || true
           git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
 
-          # actionsブランチ存在チェック
+          # actions ブランチが存在するか確認
           if git ls-remote --heads origin actions | grep actions >/dev/null; then
             echo "actions branch found"
             echo "BRANCH_NAME=actions" >> $GITHUB_ENV
           else
-            echo "actions branch NOT found, using main"
+            echo "actions branch NOT found, falling back to main"
             echo "BRANCH_NAME=main" >> $GITHUB_ENV
           fi
-      # 1. 動的に決まったブランチを checkout
-      - name: Checkout repository
+
+      # 📌 選ばれたブランチを改めて checkout し直す
+      - name: Checkout target branch
         uses: actions/checkout@v4
         with:
           ref: ${{ env.BRANCH_NAME }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. Python セットアップ
+      # ---- ここからいつもの処理 ----
+
       - name: Setup Python Environment
         uses: actions/setup-python@v4
         with:
@@ -45,13 +53,11 @@ jobs:
           cache: "pip"
           cache-dependency-path: "requirements.txt"
 
-      # 3. 依存関係インストール
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 4. スクリプト実行
       - name: Run watcher script
         env:
           TW_CONSUMER_KEY: ${{ secrets.TW_CONSUMER_KEY }}
@@ -60,7 +66,6 @@ jobs:
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
         run: python main.py
 
-      # 5. 状態ファイルをコミット & プッシュ（checkoutしたブランチへ）
       - name: Commit and push state file
         run: |
           git config --local user.email "action@github.com"
@@ -70,5 +75,4 @@ jobs:
 
           git diff --quiet --staged || git commit -m "Update last seen thread URLs [skip ci]"
 
-          # 動的に決めたブランチへ push
           git push origin $BRANCH_NAME
