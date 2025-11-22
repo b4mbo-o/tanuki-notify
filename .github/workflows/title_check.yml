@@ -18,14 +18,18 @@ jobs:
       - name: Detect branch (actions or main)
         id: detect_branch
         run: |
-          if git ls-remote --exit-code origin actions &>/dev/null; then
+          # リモートURLを明示設定（GitHubが勝手に弄ってても対応できる）
+          git remote remove origin || true
+          git remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+
+          # actionsブランチ存在チェック
+          if git ls-remote --heads origin actions | grep actions >/dev/null; then
             echo "actions branch found"
             echo "BRANCH_NAME=actions" >> $GITHUB_ENV
           else
             echo "actions branch NOT found, using main"
             echo "BRANCH_NAME=main" >> $GITHUB_ENV
           fi
-
       # 1. 動的に決まったブランチを checkout
       - name: Checkout repository
         uses: actions/checkout@v4
