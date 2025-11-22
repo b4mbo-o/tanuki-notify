@@ -46,60 +46,62 @@ client = tweepy.Client(
     access_token=AT,
     access_token_secret=AS,
 )
-
 # ==================================================
 # ===== スクレピング実行 (Scraping Execution) ======
 # ==================================================
 
 def call_scraping_target() -> Optional[List[Dict[str, str]]]:
     """
-    cloudscraperを使用して対象URLからスレッドのタイトルとURLのリストを取得する。
-    Bot対策を自動で回避する。
+    cloudscraperを使用して対象URLから、検索キーワードを含むレス（書き込み）の個別URLをすべて取得する。
     """
     print(f"[scrape] {TARGET_URL} をチェック中 (Cloudscraper使用)...")
     
-    # Cloudscraperのインスタンスを作成
     scraper = cloudscraper.create_scraper(
         delay=10, 
         browser={'custom': SIMPLE_HEADERS['User-Agent']}
     )
 
     try:
-        # scraper.get() でリクエストを実行
         r = scraper.get(TARGET_URL, timeout=30)
-        
-        # 応答を確認 (200 OK以外は例外発生)
         r.raise_for_status() 
-        
-        r.encoding = r.apparent_encoding # 文字化け対策
+        r.encoding = r.apparent_encoding
         soup = BeautifulSoup(r.text, "html.parser")
-
-        all_threads = []
-        # 'div class="box"' の要素をすべて取得し、タイトルとURLを抽出
+        
+        all_res_links = []
+        
+        # すべての div.box をループし、その中のレスリンクを抽出
         for box in soup.select('div.box'):
+            # スレッドタイトルを取得
             title_tag = box.select_one('a b span.c')
-            url_tag = box.select_one('a')
+            thread_title = title_tag.text.strip() if title_tag else "不明なスレッド"
             
-            if title_tag and url_tag and url_tag.get('href'):
-                title = title_tag.text.strip()
-                # URL整形 (余計な 'https:///' を 'https://' に修正)
-                url = url_tag['href'].replace('https:///', 'https://')
+            # div.res.inner 内の、レスへの個別リンク（例: /1760287426/931-）をすべて抽出
+            for res_link in box.select('.res.inner a[href]'):
+                full_url = res_link['href'].replace('https:///', 'https://')
                 
-                all_threads.append({
-                    "title": title,
-                    "url": url
+                # Resリンクがキーワードを含んだレスであるかどうかを確認するロジックは難しいため、
+                # ここでは「検索結果ページに表示された全レスリンク」を対象とします。
+                
+                # 状態管理をURLベースに戻す
+                all_res_links.append({
+                    "title": thread_title, 
+                    "url": full_url
                 })
         
-        if not all_threads:
-            print("[scrape] エラー: スレッド情報が見つかりませんでした。HTMLセレクタを確認してください。")
+        if not all_res_links:
+            print("[scrape] エラー: レスリンクが見つかりませんでした。HTMLセレクタを確認してください。")
             return None
             
-        return all_threads
+        return all_res_links
 
     except Exception as e:
         print(f"[error] スクレイピング/アクセスエラー: {e}")
         return None
 
+# ===================================================
+# ===== メイン処理 (Main Logic - Single Run) ========
+# ===================================================
+# ... (main_check 関数は、新しい 'all_res_links' を使って前回同様に比較されるため、そのまま利用できます) ...
 # ===================================================
 # ===== 状態管理 (State Management) =================
 # ===================================================
