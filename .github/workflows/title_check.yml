@@ -2,7 +2,6 @@ name: Thread Title Watcher
 
 on:
   schedule:
-    # 20分に1回実行
     - cron: "*/20 * * * *"
   workflow_dispatch:
 
@@ -15,14 +14,26 @@ jobs:
     environment: .env
 
     steps:
-      # 1. actions ブランチのコードをチェックアウト
-      - name: Checkout repository (actions branch code)
+      # ブランチ存在チェック → BRANCH_NAME に格納
+      - name: Detect branch (actions or main)
+        id: detect_branch
+        run: |
+          if git ls-remote --exit-code origin actions &>/dev/null; then
+            echo "actions branch found"
+            echo "BRANCH_NAME=actions" >> $GITHUB_ENV
+          else
+            echo "actions branch NOT found, using main"
+            echo "BRANCH_NAME=main" >> $GITHUB_ENV
+          fi
+
+      # 1. 動的に決まったブランチを checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: actions
+          ref: ${{ env.BRANCH_NAME }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      # 2. Python 環境セットアップ
+      # 2. Python セットアップ
       - name: Setup Python Environment
         uses: actions/setup-python@v4
         with:
@@ -30,7 +41,7 @@ jobs:
           cache: "pip"
           cache-dependency-path: "requirements.txt"
 
-      # 3. 必要なライブラリをインストール
+      # 3. 依存関係インストール
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -45,7 +56,7 @@ jobs:
           TW_ACCESS_SECRET: ${{ secrets.TW_ACCESS_SECRET }}
         run: python main.py
 
-      # 5. 状態ファイルコミット
+      # 5. 状態ファイルをコミット & プッシュ（checkoutしたブランチへ）
       - name: Commit and push state file
         run: |
           git config --local user.email "action@github.com"
@@ -53,8 +64,7 @@ jobs:
 
           git add last_seen_urls.json
 
-          # 変更があるときだけ commit
           git diff --quiet --staged || git commit -m "Update last seen thread URLs [skip ci]"
 
-          # actions ブランチに push
-          git push origin actions
+          # 動的に決めたブランチへ push
+          git push origin $BRANCH_NAME
