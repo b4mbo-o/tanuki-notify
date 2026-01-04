@@ -4,11 +4,10 @@
 ---
 
 ## ✨ Features
-- 🔍 **雑談たぬきのスレッド検索を自動スクレイピング**
-- 🆕 **新着スレッドのみ自動検知**
+- 🔍 **雑談たぬき本文検索 → スレID抽出 → 各スレ内の `q=番号` リンクを収集**
+- 🆕 **増えたレスだけを検知し、JSONに記録して重複通知なし**
 - 🐦 **X(Twitter) に自動ツイート**
-- 💾 **前回チェック内容を JSON に保存し重複通知なし**
-- 🌐 **Cloudscraper で bot 対策ページにも対応**
+- 🌐 **r.jina.ai 経由取得（Cloudflare回避）＋ cloudscraper フォールバック**
 - ⚙️ **GitHub Actions で定期自動実行に対応**
 
 ---
@@ -34,13 +33,7 @@ pip install -r requirements.txt
 ---
 
 ## ⚠️ Important  
-**この Bot を使う前に、必ず `main.py` の `SEARCH_KEYWORD` をあなたの監視したいワードに変更してください！**
-
-```python
-SEARCH_KEYWORD = "ばんぶー"   # ← ここを必ず書き換える！
-```
-
-これを変えないと、デフォのまま “ばんぶー” を追いかけ続けちゃうので注意！
+**この Bot を使う前に、`.env` の `SEARCH_KEYWORD` を必ず設定してください（デフォルトなし）。**
 
 ---
 
@@ -49,10 +42,16 @@ SEARCH_KEYWORD = "ばんぶー"   # ← ここを必ず書き換える！
 ### 1. `.env` を作成（ローカル実行する場合）
 
 ```
+SEARCH_KEYWORD=ばんぶー         # 監視ワード (EUC-JPでエンコードして検索します)
 TW_CONSUMER_KEY=xxxx
 TW_CONSUMER_SECRET=xxxx
 TW_ACCESS_TOKEN=xxxx
 TW_ACCESS_SECRET=xxxx
+
+# 任意設定
+# MAX_THREADS=10         # 検索結果から何件のスレッドを見に行くか
+# REQUEST_TIMEOUT=10     # 1リクエストあたりのタイムアウト秒
+# USER_AGENT=Mozilla/5.0 # UAを変えたい場合
 ```
 
 ---
@@ -109,9 +108,10 @@ tanuki-notify/
 ---
 
 ## 📝 Notes
-- 雑談たぬき側の HTML が変わるとセレクタ修正が必要
-- X API のレート制限に注意
-- GitHub Actions を使うと PC 不要で自動運用できておすすめ
+- 検索結果 → スレ内検索ページを r.jina.ai 経由で取得します。落ちている場合は cloudscraper にフォールバックします。
+- 初回実行時は `last_seen_urls.json` を初期化するだけでツイートしません。次回以降に新しい `q=番号` リンクが増えたらツイートします。
+- 雑談たぬき側のHTMLやパラメータ仕様が変わると取得ロジックの修正が必要になる場合があります。
+- X API のレート制限に注意。
 
 ---
 
