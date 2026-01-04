@@ -1,13 +1,19 @@
 import os
 import sys
 import json
+import re
 from pathlib import Path
 from typing import Optional, List, Dict
-import cloudscraper  # Bot対策回避ライブラリ
+
+import requests
 from dotenv import load_dotenv
 import tweepy
-from bs4 import BeautifulSoup
-from urllib.parse import quote
+from urllib.parse import quote, urlparse, parse_qs
+
+try:
+    import cloudscraper
+except ImportError:
+    cloudscraper = None
 
 # .envファイルを読み込み、環境変数を設定
 load_dotenv()
@@ -16,18 +22,28 @@ load_dotenv()
 # ===== 設 定 (Configuration) ======
 # ==================================
 
-SEARCH_KEYWORD = "ばんぶー"
-BASE_URL = "https://b.2ch2.net/test/search.cgi?bbs=zatsudan&w="
+SEARCH_KEYWORD = os.getenv("SEARCH_KEYWORD", "").strip()
+if not SEARCH_KEYWORD:
+    print("❌ SEARCH_KEYWORD を .env に設定してください。")
+    sys.exit(1)
+
 ENCODED_KEYWORD = quote(SEARCH_KEYWORD.encode('cp932')) # 雑談たぬきはEUC-JPが使われることが多いと仮定
-TARGET_URL = f"{BASE_URL}{ENCODED_KEYWORD}&t=b"
+SEARCH_URL = f"https://b.2ch2.net/test/search.cgi?bbs=zatsudan&w={ENCODED_KEYWORD}&t=b"
+JINA_PROXY_PREFIX = "https://r.jina.ai/"
+MAX_THREADS = int(os.getenv("MAX_THREADS", "10"))  # 取得するスレッド数の上限
+REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "10"))
 
 # 状態管理ファイル (前回チェック時のURLリストを保存)
 STATE_FILE = Path("last_seen_urls.json")
 
-# 簡易User-Agent (cloudscraperに渡すため)
+# 簡易User-Agent (HTTPリクエスト用)
 SIMPLE_HEADERS = {
     "User-Agent": os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0)")
 }
+
+# 接続再利用でわずかに高速化
+SESSION = requests.Session()
+SESSION.headers.update(SIMPLE_HEADERS)
 
 # X API認証情報 (環境変数から取得)
 CK = os.getenv("TW_CONSUMER_KEY")
@@ -50,53 +66,150 @@ client = tweepy.Client(
 # ===== スクレピング実行 (Scraping Execution) ======
 # ==================================================
 
-def call_scraping_target() -> Optional[List[Dict[str, str]]]:
+def to_jina_url(url: str) -> str:
+    """r.jina.ai 経由で取得するためのURLを生成する。"""
+    return f"{JINA_PROXY_PREFIX}{url}"
+
+def fetch_text(url: str) -> Optional[str]:
     """
-    cloudscraperを使用して対象URLから、検索キーワードを含むレス（書き込み）の個別URLをすべて取得する。
+    r.jina.ai経由でテキストを取得し、失敗したらcloudscraperで直接取得する。
     """
-    print(f"[scrape] {TARGET_URL} をチェック中 (Cloudscraper使用)...")
-    
-    scraper = cloudscraper.create_scraper(
-        delay=10, 
-        browser={'custom': SIMPLE_HEADERS['User-Agent']}
-    )
+    # r.jina.ai
+    try:
+        r = SESSION.get(to_jina_url(url), timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+        return r.text
+    except Exception as e:
+        print(f"[warn] r.jina.ai経由での取得に失敗: {e}")
+
+    # cloudscraper fallback
+    if cloudscraper is None:
+        print("[warn] cloudscraperがインストールされていないためフォールバック不可。")
+        return None
 
     try:
-        r = scraper.get(TARGET_URL, timeout=30)
-        r.raise_for_status() 
+        scraper = cloudscraper.create_scraper(
+            delay=10,
+            browser={'custom': SIMPLE_HEADERS['User-Agent']}
+        )
+        r = scraper.get(url, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
         r.encoding = r.apparent_encoding
-        soup = BeautifulSoup(r.text, "html.parser")
-        
-        all_res_links = []
-        
-        # すべての div.box をループし、その中のレスリンクを抽出
-        for box in soup.select('div.box'):
-            # スレッドタイトルを取得
-            title_tag = box.select_one('a b span.c')
-            thread_title = title_tag.text.strip() if title_tag else "不明なスレッド"
-            
-            # div.res.inner 内の、レスへの個別リンク（例: /1760287426/931-）をすべて抽出
-            for res_link in box.select('.res.inner a[href]'):
-                full_url = res_link['href'].replace('https:///', 'https://')
-                
-                # Resリンクがキーワードを含んだレスであるかどうかを確認するロジックは難しいため、
-                # ここでは「検索結果ページに表示された全レスリンク」を対象とします。
-                
-                # 状態管理をURLベースに戻す
-                all_res_links.append({
-                    "title": thread_title, 
-                    "url": full_url
-                })
-        
-        if not all_res_links:
-            print("[scrape] エラー: レスリンクが見つかりませんでした。HTMLセレクタを確認してください。")
-            return None
-            
-        return all_res_links
-
+        return r.text
     except Exception as e:
-        print(f"[error] スクレイピング/アクセスエラー: {e}")
+        print(f"[warn] cloudscraper経由での取得に失敗: {e}")
         return None
+
+def extract_thread_search_links(markdown_text: str) -> List[str]:
+    """
+    検索結果ページからスレッド内検索リンク
+    (/test/read.cgi/zatsudan/<id>/i?q=...）を抽出する。
+    """
+    pattern = re.compile(
+        r"(https?://b\.2ch2\.net)?/test/read\.cgi/zatsudan/(\d+)/+/i\?q=[^\s\"')>#]+",
+        re.IGNORECASE,
+    )
+    seen = set()
+    links = []
+
+    for match in pattern.finditer(markdown_text):
+        raw_url = match.group(0)
+        if raw_url.startswith("http"):
+            normalized = raw_url
+        else:
+            normalized = f"https://b.2ch2.net{raw_url}"
+
+        # //i を /i に正規化
+        normalized = normalized.replace("//i", "/i")
+
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        links.append(normalized)
+
+        if len(links) >= MAX_THREADS:
+            break
+
+    return links
+
+def extract_q_links(markdown_text: str) -> List[Dict[str, str]]:
+    """
+    r.jina.ai のMarkdownから、?q=xxx を含むレスリンクを抽出し、見やすいタイトルを付与する。
+    """
+    q_link_pattern = re.compile(
+        r"(https?://b\.2ch2\.net)?/test/read\.cgi/[^\s\"')>]+?q=[^\s\"')>#]+",
+        re.IGNORECASE,
+    )
+    seen = set()
+    links = []
+
+    for match in q_link_pattern.finditer(markdown_text):
+        raw_url = match.group(0)
+        if raw_url.startswith("http"):
+            normalized = raw_url
+        else:
+            normalized = f"https://b.2ch2.net{raw_url}"
+
+        clean_url = normalized.rstrip("#")
+
+        if clean_url in seen:
+            continue
+        seen.add(clean_url)
+
+        parsed = urlparse(clean_url)
+        query = parse_qs(parsed.query)
+        q_value = query.get("q", [""])[0]
+
+        # 数字のレス番号のみ対象とする
+        if not q_value.isdigit():
+            continue
+
+        # パス末尾が /i となるため、その1つ前をスレッドIDとして扱う
+        parts = parsed.path.rstrip("/").split("/")
+        thread_id = parts[-2] if len(parts) >= 2 else "unknown"
+        title = f"{thread_id} のレス {q_value}" if q_value else thread_id
+
+        links.append({"title": title, "url": clean_url})
+
+    return links
+
+def call_scraping_target() -> Optional[List[Dict[str, str]]]:
+    """
+    検索結果からスレッドIDを抽出し、各スレッド内の ?q=レス番号 リンクを集約する。
+    """
+    print(f"[scrape] 検索ページ {SEARCH_URL} をチェック中 (r.jina.ai優先, fallbackにcloudscraper)...")
+
+    search_text = fetch_text(SEARCH_URL)
+    if not search_text:
+        print("[error] 検索ページを取得できませんでした。")
+        return None
+
+    thread_links = extract_thread_search_links(search_text)
+    if not thread_links:
+        print("[error] 検索結果からスレッドリンクを抽出できませんでした。")
+        return None
+
+    all_res_links: List[Dict[str, str]] = []
+    seen_urls = set()
+
+    for thread_url in thread_links:
+        text = fetch_text(thread_url)
+        if not text:
+            continue
+
+        q_links = extract_q_links(text)
+        for link in q_links:
+            if link["url"] in seen_urls:
+                continue
+            seen_urls.add(link["url"])
+            all_res_links.append(link)
+
+    if not all_res_links:
+        print("[scrape] エラー: レスリンクが見つかりませんでした。検索結果の形式を確認してください。")
+        return None
+
+    print(f"[scrape] 合計 {len(all_res_links)} 件のレスリンクを抽出しました。")
+    return all_res_links
 
 # ===================================================
 # ===== メイン処理 (Main Logic - Single Run) ========
@@ -149,7 +262,7 @@ def tweet_notification(new_threads: List[Dict[str, str]]):
     # 複数件あった場合は、検索結果ページへのリンクを追加
     if new_count > 1:
         message += f"\n\n👉 他 {new_count - 1} 件は、こちらで確認:\n"
-        message += f"{TARGET_URL}"
+        message += f"{SEARCH_URL}"
         
     message += f"\n\n#{SEARCH_KEYWORD} #雑談たぬき #たぬきに書くな"
     
